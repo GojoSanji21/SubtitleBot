@@ -5,9 +5,17 @@ from app.database import update_user_info, get_user_info
 from app.translate import translate_subtitles
 from app.settings import load_user_settings, save_user_settings
 import time, os
+from pyrogram.errors import ChatWriteForbidden
 
 BOT_START_TIME = time.time()
 OWNER_ID = int(os.getenv("OWNER_ID", 0))
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", 0))
+
+async def log_to_channel(text):
+    try:
+        await app.send_message(LOG_CHANNEL_ID, text)
+    except ChatWriteForbidden:
+        print("Bot has no permission to write to log channel.")
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
@@ -18,6 +26,7 @@ async def start_cmd(client, message):
     if not user or not user.get("allowed", False):
         return await message.reply("You are not allowed to use this bot.")
     await message.reply("Welcome to Subtitle Translator Bot! Use /help to see commands.")
+    await log_to_channel(f"User {user_id} used /start")
 
 @app.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(client, message):
@@ -37,6 +46,7 @@ async def settings_cmd(client, message):
         ]
     ])
     await message.reply("Your current settings:", reply_markup=keyboard)
+    await log_to_channel(f"User {user_id} accessed settings")
 
 @app.on_callback_query()
 async def handle_settings_buttons(client, callback):
@@ -83,6 +93,7 @@ async def translate_cmd(client, message):
     if not user or not user.get("allowed", False):
         return await message.reply("You are not allowed to use this bot.")
     await message.reply("Please upload your subtitle file (.srt, .ass, or .vtt).")
+    await log_to_channel(f"User {user_id} is uploading a subtitle for translation")
 
 @app.on_message(filters.document & filters.private)
 async def handle_subtitle_file(client, message):
@@ -129,6 +140,7 @@ async def feedback_cmd(client, message):
     if not feedback_text:
         return await message.reply("Please provide feedback.")
     await message.reply("Thanks for your feedback!")
+    await log_to_channel(f"User {user_id} sent feedback: {feedback_text}")
 
 @app.on_message(filters.command("clearhistory") & filters.private)
 async def clear_history_cmd(client, message):
@@ -138,6 +150,7 @@ async def clear_history_cmd(client, message):
         return await message.reply("You are not allowed to use this bot.")
     update_user_info(user_id, {"history": []})
     await message.reply("Your history has been cleared.")
+    await log_to_channel(f"User {user_id} cleared history")
 
 @app.on_message(filters.command("status") & filters.user(OWNER_ID))
 async def status_cmd(client, message):
@@ -162,3 +175,4 @@ async def broadcast_cmd(client, message):
         except:
             pass
     await message.reply(f"Message sent to {success} users.")
+    await log_to_channel(f"Broadcast sent to {success} users by OWNER")
