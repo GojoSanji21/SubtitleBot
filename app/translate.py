@@ -3,29 +3,26 @@ import aiofiles
 import openai
 import google.generativeai as genai
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+from dotenv import load_dotenv
 
-def chunk_text(text, max_length):
-    chunks, current_chunk = [], ""
-    for line in text.splitlines():
-        if len(current_chunk) + len(line) < max_length:
-            current_chunk += line + "\n"
-        else:
-            chunks.append(current_chunk.strip())
-            current_chunk = line + "\n"
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-    return chunks
+load_dotenv()
+
+def get_gpt_client():
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    return openai
+
+def get_gemini_model():
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    return genai.GenerativeModel("gemini-pro")
 
 async def translate_with_gpt(text, target_lang):
+    openai_client = get_gpt_client()
     try:
-        response = await openai.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": f"You are a subtitle translator. Translate to {target_lang}. Keep subtitle formatting intact."},
-                {"role": "user", "content": text},
+                {"role": "system", "content": "You are a subtitle translator."},
+                {"role": "user", "content": f"Translate the following subtitle text to {target_lang}. Keep subtitle formatting.\n{text}"}
             ]
         )
         return response.choices[0].message.content
@@ -33,114 +30,118 @@ async def translate_with_gpt(text, target_lang):
         raise Exception(f"GPT translation error: {e}")
 
 def translate_with_gemini_sync(text, target_lang):
+    model = get_gemini_model()
     try:
-        model = genai.GenerativeModel("gemini-pro")
-        prompt = f"Translate the following subtitle text to {target_lang}. Keep subtitle formatting:
-{text}"
+        prompt = f"""Translate the following subtitle text to {target_lang}. 
+Keep subtitle formatting.
+{text}"""
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        raise Exception(f"Gemini translation error: {e}")
+        raise Exception(f"Gemini translation failed: {e}")
 
-async def batch_translate(chunks, lang, engine, batch_size):
-    translated = []
-    for i in range(0, len(chunks), batch_size):
-        batch = chunks[i:i+batch_size]
+async def batch_translate(lines, target_lang, engine, batch_size):
+    translated_batches = []
+    for i in range(0, len(lines), batch_size):
+        batch = lines[i:i + batch_size]
         combined = "\n".join(batch)
         try:
             if engine == "gpt":
-                translated_text = await translate_with_gpt(combined, lang)
+                translated_text = await translate_with_gpt(combined, target_lang)
             else:
-                translated_text = translate_with_gemini_sync(combined, lang)
-            translated.extend(translated_text.splitlines())
-        except Exception as inner_e:
+                translated_text = translate_with_gemini_sync(combined, target_lang)
+            translated_batches.extend(translated_text.split("\n"))
+        except Exception as e:
             fallback_engine = "gemini" if engine == "gpt" else "gpt"
-            print(f"{engine.upper()} failed, trying fallback: {inner_e}")
+            print(f"{engine.upper()} failed, trying fallback: {e}")
             try:
                 if fallback_engine == "gpt":
-                    translated_text = await translate_with_gpt(combined, lang)
+                    translated_text = await translate_with_gpt(combined, target_lang)
                 else:
-                    translated_text = translate_with_gemini_sync(combined, lang)
-                translated.extend(translated_text.splitlines())
-            except Exception as fallback_e:
-                raise Exception(f"Translation failed: {fallback_e}")
-    return translated
+                    translated_text = translate_with_gemini_sync(combined, target_lang)
+                translated_batches.extend(translated_text.split("\n"))
+            except Exception as inner_e:
+                raise Exception(f"Translation failed: {inner_e}")
+    return translated_batches
 
-async def translate_srt(path, lang, engine, batch_size):
-    try:
-        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-            content = await f.read()
-        blocks = content.split("\n\n")
-        translated_blocks = []
-        for block in blocks:
-            lines = block.strip().splitlines()
-            if len(lines) >= 3:
-                subtitle_text = "\n".join(lines[2:])
-                chunks = chunk_text(subtitle_text, 1000)
-                translated_lines = await batch_translate(chunks, lang, engine, batch_size)
-                translated_block = "\n".join(lines[:2] + translated_lines)
-                translated_blocks.append(translated_block)
-            else:
-                translated_blocks.append(block)
-        output_file = path.rsplit(".", 1)[0] + ".translated.srt"
-        async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
-            await f.write("\n\n".join(translated_blocks))
-        return output_file
-    except Exception as e:
-        raise Exception(f"SRT translation error: {e}")
+async def translate_srt(file_path, lang, engine, batch_size):
+    async with aiofiles.open(file_path, mode='r', encoding='utf-8') as f:
+        lines = await f.readlines()
 
-async def translate_ass(path, lang, engine, batch_size):
-    try:
-        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-            lines = await f.readlines()
-        dialogue_lines = []
-        prefix_lines = []
-        for line in lines:
-            if line.startswith("Dialogue:"):
-                dialogue_lines.append(line)
-            else:
-                prefix_lines.append(line)
-        text_lines = [line.split(",", 9)[-1].strip() for line in dialogue_lines]
-        translated_texts = await batch_translate(text_lines, lang, engine, batch_size)
-        translated_dialogues = []
-        for original, translated in zip(dialogue_lines, translated_texts):
-            parts = original.split(",", 9)
-            if len(parts) == 10:
-                parts[9] = translated
-                translated_dialogues.append(",".join(parts))
-            else:
-                translated_dialogues.append(original)
-        output_file = path.rsplit(".", 1)[0] + ".translated.ass"
-        async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
-            await f.writelines(prefix_lines + translated_dialogues)
-        return output_file
-    except Exception as e:
-        raise Exception(f"ASS translation error: {e}")
+    text_lines = [line.strip() for line in lines if line.strip() and not line.strip().isdigit() and "-->" not in line]
+    translated_lines = await batch_translate(text_lines, lang, engine, batch_size)
 
-async def translate_vtt(path, lang, engine, batch_size):
-    try:
-        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-            content = await f.read()
-        blocks = content.strip().split("\n\n")
-        translated_blocks = []
-        for block in blocks:
-            lines = block.strip().splitlines()
-            if len(lines) >= 2:
-                subtitle_text = "\n".join(lines[1:])
-                chunks = chunk_text(subtitle_text, 1000)
-                translated_lines = await batch_translate(chunks, lang, engine, batch_size)
-                translated_block = "\n".join([lines[0]] + translated_lines)
-                translated_blocks.append(translated_block)
+    index = 0
+    output = []
+    for line in lines:
+        if line.strip() and not line.strip().isdigit() and "-->" not in line:
+            if index < len(translated_lines):
+                output.append(translated_lines[index] + "\n")
+                index += 1
             else:
-                translated_blocks.append(block)
-        output_file = path.rsplit(".", 1)[0] + ".translated.vtt"
-        async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
-            await f.write("\n\n".join(translated_blocks))
-        return output_file
-    except Exception as e:
-        raise Exception(f"VTT translation error: {e}")
+                output.append(line)
+        else:
+            output.append(line)
 
-async def translate_subtitles(file_path, lang, engine="gpt", batch_size=20):
+    output_path = file_path.replace(".srt", f"_translated_{lang}.srt")
+    async with aiofiles.open(output_path, mode='w', encoding='utf-8') as f:
+        await f.writelines(output)
+
+    return output_path
+
+async def translate_ass(file_path, lang, engine, batch_size):
+    async with aiofiles.open(file_path, mode='r', encoding='utf-8') as f:
+        lines = await f.readlines()
+
+    subtitle_lines = []
+    indexes = []
+    for i, line in enumerate(lines):
+        if line.startswith("Dialogue:"):
+            parts = line.strip().split(",", 9)
+            if len(parts) >= 10:
+                subtitle_lines.append(parts[9])
+                indexes.append(i)
+
+    translated_texts = await batch_translate(subtitle_lines, lang, engine, batch_size)
+
+    for idx, i in enumerate(indexes):
+        parts = lines[i].strip().split(",", 9)
+        if len(parts) >= 10 and idx < len(translated_texts):
+            parts[9] = translated_texts[idx]
+            lines[i] = ",".join(parts) + "\n"
+
+    output_path = file_path.replace(".ass", f"_translated_{lang}.ass")
+    async with aiofiles.open(output_path, mode='w', encoding='utf-8') as f:
+        await f.writelines(lines)
+
+    return output_path
+
+async def translate_vtt(file_path, lang, engine, batch_size):
+    async with aiofiles.open(file_path, mode='r', encoding='utf-8') as f:
+        lines = await f.readlines()
+
+    text_lines = [line.strip() for line in lines if line.strip() and "-->"]
+    translated_lines = await batch_translate(text_lines, lang, engine, batch_size)
+
+    index = 0
+    output = []
+    for line in lines:
+        if line.strip() and "-->" not in line:
+            if index < len(translated_lines):
+                output.append(translated_lines[index] + "\n")
+                index += 1
+            else:
+                output.append(line)
+        else:
+            output.append(line)
+
+    output_path = file_path.replace(".vtt", f"_translated_{lang}.vtt")
+    async with aiofiles.open(output_path, mode='w', encoding='utf-8') as f:
+        await f.writelines(output)
+
+    return output_path
+
+async def translate_subtitles(file_path, lang, engine, batch_size):
     try:
         if file_path.endswith(".srt"):
             return await translate_srt(file_path, lang, engine, batch_size)
@@ -149,6 +150,6 @@ async def translate_subtitles(file_path, lang, engine="gpt", batch_size=20):
         elif file_path.endswith(".vtt"):
             return await translate_vtt(file_path, lang, engine, batch_size)
         else:
-            raise Exception("Unsupported subtitle format.")
+            raise Exception("Unsupported subtitle format")
     except Exception as e:
         raise Exception(f"Translation failed: {e}")
