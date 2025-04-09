@@ -4,4 +4,5 @@ aiohttp==3.8.1
 python-dotenv==0.19.2
 pymongo==3.11.4
 dnspython==2.3.0
-tgcrypto==1.2.5  # optional but recommended for faster encryption
+tgcrypto==1.2.5
+Flask==2.2.5
