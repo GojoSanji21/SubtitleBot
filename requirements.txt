@@ -7,3 +7,4 @@ dnspython==2.3.0
 tgcrypto==1.2.5
 Flask==2.2.5
 langdetect==1.0.9
+pyromod==2.0.1
