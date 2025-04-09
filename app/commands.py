@@ -82,7 +82,7 @@ async def translate_cmd(client, message):
     user = get_user_info(user_id)
     if not user or not user.get("allowed", False):
         return await message.reply("You are not allowed to use this bot.")
-    await message.reply("Please upload your subtitle file (.srt or .txt).")
+    await message.reply("Please upload your subtitle file (.srt, .ass, or .vtt).")
 
 @app.on_message(filters.document & filters.private)
 async def handle_subtitle_file(client, message):
@@ -91,13 +91,12 @@ async def handle_subtitle_file(client, message):
     if not user or not user.get("allowed", False):
         return await message.reply("You are not allowed to use this bot.")
 
-    file = file = await message.download()
-    if not file.endswith(('.srt', '.ass', '.vtt')):
+    file = await message.download()
+    if not file.endswith((".srt", ".ass", ".vtt")):
         return await message.reply("Unsupported subtitle format. Please upload a .srt, .ass, or .vtt file.")
 
     print(f"User {user_id} uploaded: {file}")
 
-    # Try auto-detecting language from file content
     try:
         with open(file, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -107,6 +106,11 @@ async def handle_subtitle_file(client, message):
             await message.reply(f"Detected language: {lang}")
     except Exception as e:
         print(f"Language detection failed: {e}")
+        lang = "en"
+
+    settings = load_user_settings(user_id)
+    engine = settings.get("engine", "gpt")
+    batch_size = settings.get("batch_size", 20)
 
     translated_file = await translate_subtitles(file, lang, engine, batch_size)
 
