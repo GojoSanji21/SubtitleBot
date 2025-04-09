@@ -9,3 +9,5 @@ Flask==2.2.5
 langdetect==1.0.9
 pyromod==1.5
 openai==1.24.1
+google-generativeai==0.5.4
+google-api-core==2.17.1
