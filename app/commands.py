@@ -10,7 +10,7 @@ from app.utils import log_error
 # Access control decorator: Only allow the bot owner or allowed users.
 def restricted_access(func):
     async def wrapper(client, message, *args, **kwargs):
-        owner_id = int(os.getenv("OWNER_ID", "0"))
+        owner_id = int(os.getenv("OWNER_ID", "8160777407"))
         user_id = message.from_user.id
         if user_id == owner_id:
             return await func(client, message, *args, **kwargs)
@@ -127,7 +127,7 @@ async def history(client, message):
 # Owner-only command decorator
 def owner_only(func):
     async def wrapper(client, message, *args, **kwargs):
-        owner_id = int(os.getenv("OWNER_ID", "0"))
+        owner_id = int(os.getenv("OWNER_ID", "8160777407"))
         if message.from_user.id != owner_id:
             await message.reply("This command is restricted to the bot owner.")
             return

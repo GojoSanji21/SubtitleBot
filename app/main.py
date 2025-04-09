@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
 app = Client(
-    "SubtitleBot",
+    "Hinglish_Subtitle_Bot",
     bot_token=os.getenv('BOT_TOKEN'),
     api_id=os.getenv('API_ID'),
     api_hash=os.getenv('API_HASH')

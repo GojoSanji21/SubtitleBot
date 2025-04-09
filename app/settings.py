@@ -9,7 +9,7 @@ def load_user_settings(user_id):
                 "user_id": user_id,
                 "engine": "gemini",
                 "target_language": "en",
-                "batch_size": 20,
+                "batch_size": 100,
                 "allowed": False,
                 "translation_history": []
             }
@@ -21,7 +21,7 @@ def load_user_settings(user_id):
             "user_id": user_id,
             "engine": "gemini",
             "target_language": "en",
-            "batch_size": 20,
+            "batch_size": 100,
             "allowed": False,
             "translation_history": []
         }
