@@ -2,6 +2,8 @@ import logging
 import os
 from pyrogram import Client, filters
 from dotenv import load_dotenv
+from flask import Flask
+import threading
 
 # Load environment variables from .env or Koyeb config
 load_dotenv()
@@ -46,10 +48,23 @@ async def help_cmd(client, message):
 
 @app.on_message()
 async def debug_log(client, message):
-    print(f"Received a message from {message.from_user.id}: {message.text}")
+    print(">>> Bot received a message")
+    print(f"From: {message.from_user.id}, Text: {message.text}")
+    await message.reply("Bot is working! You said: " + message.text)
+
+# Optional web server to keep Koyeb happy
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
+    threading.Thread(target=run_web).start()
     print("Bot is starting...")
     app.run()
     print("Bot is running.")
-    
